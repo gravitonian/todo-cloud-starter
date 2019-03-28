@@ -27,42 +27,45 @@ app.route('/api/v1/todos').get( async (req, res) => {
     res.setHeader('Content-Type', 'application/json');
 
     let todos = [];
+    let cacheServiceDown = false;
 
     // First, try to get todos from Todo cache
     await cacheServiceApi.get(req.path)
         .then(resp => {
             todos = resp.data;
-
-            if (todos == null || todos.length <=0) {
-                console.log('Got nothing from Todo Cache');
-
-               // Nothing in cache, try the Todo storage
-                storageServiceApi.get(req.path)
-                    .then(resp2 => {
-                        todos = resp2.data;
-                        if (todos == null || todos.length <=0) {
-                            console.log('Got nothing from Todo Storage');
-                        } else {
-                            console.log('Got Todos from Todo Storage (' + todos.length + ')');
-
-                            // Send message to Todo Cache about existing todos
-                            sendMessageOnQueue('cache-ingestion', "**load**");
-                        }
-                        res.send(todos);
-                    })
-                    .catch(err2 => {
-                        console.log(err2);
-                        res.send(todos);
-                    });
-            } else {
-                console.log('Got Todos from Todo Cache (' + todos.length + ')');
-                res.send(todos);
-            }
         })
         .catch(err => {
-            console.log(err);
-            res.send(todos);
+            console.log('No response from Cache Service');
+            cacheServiceDown = true;
         });
+
+    if (todos == null || todos.length <=0) {
+        console.log('Got nothing from Todo Cache');
+
+        // Nothing in cache, try the Todo storage
+        await storageServiceApi.get(req.path)
+            .then(resp2 => {
+                todos = resp2.data;
+                if (todos == null || todos.length <=0) {
+                    console.log('Got nothing from Todo Storage');
+                } else {
+                    console.log('Got Todos from Todo Storage (' + todos.length + ')');
+
+                    // Send message to Todo Cache about existing todos
+                    if (cacheServiceDown === false) {
+                        sendMessageOnQueue('cache-ingestion', "**load**");
+                    }
+                }
+                res.send(todos);
+            })
+            .catch(err2 => {
+                console.log('No response from Storage Service');
+                res.send(todos);
+            });
+    } else {
+        console.log('Got Todos from Todo Cache (' + todos.length + ')');
+        res.send(todos);
+    }
 });
 
 // Create a new todo
@@ -93,7 +96,7 @@ app.route('/api/v1/search').post((req, res) => {
             res.send(resp.data);
         })
         .catch(err => {
-            console.log('No response from Search Service: ' + err);
+            console.log('No response from Search Service');
         });
 });
 
